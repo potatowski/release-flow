@@ -202,3 +202,40 @@ test('forced finalize from another ref releases the main branch head', async () 
   assert.equal(result.status, 'created');
   assert.equal(repo.releases.find((r) => r.tag_name === 'v1.0.1').target_commitish, 'mainhead');
 });
+
+function deployMergeSetup(parents) {
+  const deploy = { ...mergedPr(50, { sha: 'headsha', head: 'dev', base: 'main' }) };
+  return createFakeOctokit({
+    releases: [{ tag_name: 'v1.0.0' }],
+    compare: { 'v1.0.0...headsha': parents === 1 ? ['headsha'] : ['a', 'b', 'headsha'] },
+    associated: { headsha: [deploy] },
+    parents: { headsha: parents },
+    prCommits: { 50: ['a', 'b'] },
+    pulls: [
+      deploy,
+      mergedPr(1, { sha: 'a', body: entry('Added', 'Feature') }),
+      mergedPr(2, { sha: 'b', body: entry('Fixed', 'Bug') }),
+    ],
+  });
+}
+
+test('finalize uses the deploy pull request commits after a squash or rebase merge', async () => {
+  const { octokit, repo } = deployMergeSetup(1);
+  const warnings = [];
+  const log = { info() {}, warning: (m) => warnings.push(m) };
+  const result = await runFinalize({ octokit, context: mainContext(), inputs, log });
+  assert.equal(result.nextVersion, 'v1.1.0');
+  assert.match(repo.releases.at(-1).body, /Feature \(#1\)[\s\S]*Bug \(#2\)/);
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /#50 was not merged with a merge commit/);
+});
+
+test('finalize keeps the tag range for a merge-commit deploy', async () => {
+  const { octokit, calls } = deployMergeSetup(2);
+  const warnings = [];
+  const log = { info() {}, warning: (m) => warnings.push(m) };
+  const result = await runFinalize({ octokit, context: mainContext(), inputs, log });
+  assert.equal(result.nextVersion, 'v1.1.0');
+  assert.ok(!calls.some(([name]) => name === 'pulls.listCommits'));
+  assert.deepEqual(warnings, []);
+});

@@ -134,6 +134,45 @@ async function findMergedPullRequests(octokit, { owner, repo, bases, excludeHead
   return [...found.values()].sort((a, b) => a.number - b.number);
 }
 
+/**
+ * Returns the merged `head` -> `base` pull request from this repository
+ * that produced commit `sha`, or null.
+ */
+async function findMergedPullRequestForCommit(octokit, { owner, repo, sha, head, base }) {
+  const { data } = await octokit.rest.repos.listPullRequestsAssociatedWithCommit({
+    owner,
+    repo,
+    commit_sha: sha,
+  });
+  const fullName = `${owner}/${repo}`;
+  return (
+    data.find(
+      (pr) => pr.merged_at && pr.head.ref === head && pr.base.ref === base && isSameRepo(pr, fullName),
+    ) || null
+  );
+}
+
+async function countParents(octokit, { owner, repo, sha }) {
+  const { data } = await octokit.rest.repos.getCommit({ owner, repo, ref: sha });
+  return data.parents.length;
+}
+
+async function listPullRequestCommits(octokit, { owner, repo, pullNumber }) {
+  const commits = [];
+  for (let page = 1; page <= MAX_LIST_PAGES; page += 1) {
+    const { data } = await octokit.rest.pulls.listCommits({
+      owner,
+      repo,
+      pull_number: pullNumber,
+      per_page: PER_PAGE,
+      page,
+    });
+    commits.push(...data.map(toCommit));
+    if (data.length < PER_PAGE) break;
+  }
+  return commits;
+}
+
 async function listNames(fetchPage, pick) {
   const names = [];
   for (let page = 1; page <= MAX_LIST_PAGES; page += 1) {
@@ -229,6 +268,9 @@ module.exports = {
   listCommits,
   filterPullRequests,
   findMergedPullRequests,
+  findMergedPullRequestForCommit,
+  countParents,
+  listPullRequestCommits,
   findLatestVersion,
   getBranchHead,
   getTagCommit,

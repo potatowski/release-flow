@@ -136,6 +136,33 @@ function renderReleaseBody({ prs, agg }) {
 }
 
 /**
+ * Commits that make up the release at `sha`. A squash or rebase merged
+ * deploy pull request rewrites the staging commits, so their merge SHAs
+ * are only reachable through the pull request itself.
+ */
+async function releaseRange(octokit, { owner, repo, inputs, sha, latest, log }) {
+  const deploy = await gh.findMergedPullRequestForCommit(octokit, {
+    owner,
+    repo,
+    sha,
+    head: inputs.stagingBranch,
+    base: inputs.mainBranch,
+  });
+  if (deploy && (await gh.countParents(octokit, { owner, repo, sha })) === 1) {
+    log.warning(
+      `Deploy pull request #${deploy.number} was not merged with a merge commit; using its commits as the release range. ` +
+        `Merge deploy pull requests with a merge commit so ${inputs.stagingBranch} and ${inputs.mainBranch} keep a shared history.`,
+    );
+    return gh.listPullRequestCommits(octokit, { owner, repo, pullNumber: deploy.number });
+  }
+
+  const base = latest ? latest.tag : inputs.since;
+  return base
+    ? (await gh.compareCommits(octokit, { owner, repo, base, head: sha })).commits
+    : gh.listCommits(octokit, { owner, repo, sha });
+}
+
+/**
  * Main push: publishes a release for the pull requests merged since the
  * latest version tag.
  */
@@ -148,10 +175,7 @@ async function runFinalize({ octokit, context, inputs, log = silentLog }) {
       : await gh.getBranchHead(octokit, { owner, repo, branch: inputs.mainBranch });
 
   const latest = await gh.findLatestVersion(octokit, { owner, repo });
-  const base = latest ? latest.tag : inputs.since;
-  const commits = base
-    ? (await gh.compareCommits(octokit, { owner, repo, base, head: sha })).commits
-    : await gh.listCommits(octokit, { owner, repo, sha });
+  const commits = await releaseRange(octokit, { owner, repo, inputs, sha, latest, log });
 
   const result = await plan(octokit, { owner, repo, inputs, commits, latest, log });
   if (!result.bump) {

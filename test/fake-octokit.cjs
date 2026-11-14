@@ -28,6 +28,9 @@ function createFakeOctokit(state = {}) {
     tags: [],
     refs: {},
     tagObjects: {},
+    associated: {},
+    parents: {},
+    prCommits: {},
     ...state,
   };
   const calls = [];
@@ -52,6 +55,12 @@ function createFakeOctokit(state = {}) {
         }),
         listCommits: record('repos.listCommits', (params) => ({
           data: page(repo.commits, params).map(toApiCommit),
+        })),
+        listPullRequestsAssociatedWithCommit: record('repos.listPullRequestsAssociatedWithCommit', ({ commit_sha }) => ({
+          data: repo.associated[commit_sha] || [],
+        })),
+        getCommit: record('repos.getCommit', ({ ref }) => ({
+          data: { sha: ref, parents: Array.from({ length: repo.parents[ref] || 2 }, (_, i) => ({ sha: `p${i}` })) },
         })),
         listReleases: record('repos.listReleases', (params) => ({
           data: page(repo.releases, params),
@@ -89,6 +98,9 @@ function createFakeOctokit(state = {}) {
           repo.pulls.push(pr);
           return { data: pr };
         }),
+        listCommits: record('pulls.listCommits', (params) => ({
+          data: page(repo.prCommits[params.pull_number] || [], params).map(toApiCommit),
+        })),
         update: record('pulls.update', (params) => {
           const pr = repo.pulls.find((p) => p.number === params.pull_number);
           Object.assign(pr, { title: params.title, body: params.body });
