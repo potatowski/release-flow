@@ -112,22 +112,38 @@ async function listNames(fetchPage, pick) {
 }
 
 /**
- * Returns the highest `vX.Y.Z` among published releases (no drafts or
- * prereleases), falling back to the tags list. Null when none exists.
+ * Returns the highest `vX.Y.Z` among published release tags (no drafts or
+ * prereleases) and repository tags. Null when none exists.
  */
 async function findLatestVersion(octokit, { owner, repo }) {
   const releaseTags = await listNames(
     (page) => octokit.rest.repos.listReleases({ owner, repo, per_page: PER_PAGE, page }),
     (release) => (release.draft || release.prerelease ? null : release.tag_name),
   );
-  const fromReleases = latestTag(releaseTags);
-  if (fromReleases) return fromReleases;
-
   const tags = await listNames(
     (page) => octokit.rest.repos.listTags({ owner, repo, per_page: PER_PAGE, page }),
     (tag) => tag.name,
   );
-  return latestTag(tags);
+  return latestTag([...releaseTags, ...tags]);
+}
+
+/**
+ * Returns the commit SHA a tag points at (dereferencing annotated tags),
+ * or null when the tag does not exist.
+ */
+async function getTagCommit(octokit, { owner, repo, tag }) {
+  let object;
+  try {
+    ({ data: { object } } = await octokit.rest.git.getRef({ owner, repo, ref: `tags/${tag}` }));
+  } catch (error) {
+    if (error.status === 404) return null;
+    throw error;
+  }
+  if (object.type === 'tag') {
+    const { data } = await octokit.rest.git.getTag({ owner, repo, tag_sha: object.sha });
+    return data.object.sha;
+  }
+  return object.sha;
 }
 
 async function getReleaseByTag(octokit, { owner, repo, tag }) {
@@ -173,6 +189,7 @@ module.exports = {
   filterPullRequests,
   findMergedPullRequests,
   findLatestVersion,
+  getTagCommit,
   getReleaseByTag,
   findOpenPullRequest,
   upsertTagRef,

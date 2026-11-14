@@ -161,6 +161,11 @@ async function runFinalize({ octokit, context, inputs, log = silentLog }) {
     return { status: 'exists', nextVersion: tag, body };
   }
 
+  const tagCommit = await gh.getTagCommit(octokit, { owner, repo, tag });
+  if (tagCommit && tagCommit !== sha) {
+    throw new Error(`Tag ${tag} already exists at ${tagCommit}, not ${sha}; refusing to create the release.`);
+  }
+
   await octokit.rest.repos.createRelease({
     owner,
     repo,

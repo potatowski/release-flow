@@ -22,6 +22,7 @@ function createFakeOctokit(state = {}) {
     releases: [],
     tags: [],
     refs: {},
+    tagObjects: {},
     ...state,
   };
   const calls = [];
@@ -92,8 +93,13 @@ function createFakeOctokit(state = {}) {
       git: {
         getRef: record('git.getRef', ({ ref }) => {
           if (!repo.refs[ref]) throw notFound();
-          return { data: { ref: `refs/${ref}`, object: { sha: repo.refs[ref] } } };
+          const sha = repo.refs[ref];
+          const type = repo.tagObjects[sha] ? 'tag' : 'commit';
+          return { data: { ref: `refs/${ref}`, object: { sha, type } } };
         }),
+        getTag: record('git.getTag', ({ tag_sha }) => ({
+          data: { sha: tag_sha, object: { sha: repo.tagObjects[tag_sha], type: 'commit' } },
+        })),
         createRef: record('git.createRef', ({ ref, sha }) => {
           repo.refs[ref.replace(/^refs\//, '')] = sha;
           return { data: {} };

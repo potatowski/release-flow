@@ -56,6 +56,21 @@ test('findMergedPullRequests searches every base and dedupes', async () => {
   assert.deepEqual(prs.map((pr) => pr.number), [1, 2]);
 });
 
+test('findLatestVersion uses the highest of release tags and repository tags', async () => {
+  const fake = createFakeOctokit({ releases: [{ tag_name: 'v1.2.0' }], tags: ['v1.2.0', 'v1.3.0'] });
+  assert.equal((await gh.findLatestVersion(fake.octokit, { owner, repo })).tag, 'v1.3.0');
+});
+
+test('getTagCommit resolves lightweight and annotated tags', async () => {
+  const { octokit } = createFakeOctokit({
+    refs: { 'tags/v1.0.0': 'c1', 'tags/v2.0.0': 'tagobj' },
+    tagObjects: { tagobj: 'c2' },
+  });
+  assert.equal(await gh.getTagCommit(octokit, { owner, repo, tag: 'v1.0.0' }), 'c1');
+  assert.equal(await gh.getTagCommit(octokit, { owner, repo, tag: 'v2.0.0' }), 'c2');
+  assert.equal(await gh.getTagCommit(octokit, { owner, repo, tag: 'v3.0.0' }), null);
+});
+
 test('findLatestVersion ignores drafts and prereleases, falls back to tags', async () => {
   let fake = createFakeOctokit({
     releases: [
