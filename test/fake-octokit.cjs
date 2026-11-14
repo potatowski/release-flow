@@ -109,7 +109,10 @@ function createFakeOctokit(state = {}) {
   return { octokit, repo, calls };
 }
 
-function mergedPr(number, { base = 'dev', head = `feature-${number}`, sha = `m${number}`, title, body = '' } = {}) {
+function mergedPr(
+  number,
+  { base = 'dev', head = `feature-${number}`, sha = `m${number}`, title, body = '', headRepo = 'acme/app' } = {},
+) {
   return {
     number,
     state: 'closed',
@@ -117,7 +120,7 @@ function mergedPr(number, { base = 'dev', head = `feature-${number}`, sha = `m${
     body,
     merged_at: '2026-01-01T00:00:00Z',
     merge_commit_sha: sha,
-    head: { ref: head },
+    head: { ref: head, repo: { full_name: headRepo } },
     base: { ref: base },
   };
 }

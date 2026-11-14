@@ -49,18 +49,23 @@ async function listCommitShas(octokit, { owner, repo, sha, cap = 2000 }) {
   return shas.slice(0, cap);
 }
 
+function isSameRepo(pr, fullName) {
+  return Boolean(pr.head && pr.head.repo && pr.head.repo.full_name === fullName);
+}
+
 /**
- * Keeps merged pull requests whose merge commit is in `shas` and whose
- * head branch is not one of `excludeHeads`.
+ * Keeps merged pull requests whose merge commit is in `shas`, dropping those
+ * opened from one of `excludeHeads` in this repository (deploy and sync
+ * pull requests). Fork branches with the same names are kept.
  */
-function filterPullRequests(prs, { shas, excludeHeads }) {
+function filterPullRequests(prs, { shas, excludeHeads, fullName }) {
   const shaSet = shas instanceof Set ? shas : new Set(shas);
   return prs.filter(
     (pr) =>
       pr.merged_at &&
       pr.merge_commit_sha &&
       shaSet.has(pr.merge_commit_sha) &&
-      !excludeHeads.includes(pr.head && pr.head.ref),
+      !(excludeHeads.includes(pr.head && pr.head.ref) && isSameRepo(pr, fullName)),
   );
 }
 
@@ -71,6 +76,7 @@ function filterPullRequests(prs, { shas, excludeHeads }) {
 async function findMergedPullRequests(octokit, { owner, repo, bases, excludeHeads, shas }) {
   const shaSet = new Set(shas);
   const found = new Map();
+  const fullName = `${owner}/${repo}`;
   for (const base of bases) {
     for (let page = 1; page <= MAX_PR_PAGES; page += 1) {
       const { data } = await octokit.rest.pulls.list({
@@ -83,7 +89,7 @@ async function findMergedPullRequests(octokit, { owner, repo, bases, excludeHead
         per_page: PER_PAGE,
         page,
       });
-      for (const pr of filterPullRequests(data, { shas: shaSet, excludeHeads })) {
+      for (const pr of filterPullRequests(data, { shas: shaSet, excludeHeads, fullName })) {
         found.set(pr.number, pr);
       }
       if (data.length < PER_PAGE) break;

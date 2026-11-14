@@ -16,9 +16,14 @@ test('filterPullRequests keeps merged PRs in range and drops sync/deploy heads',
     mergedPr(4, { sha: 'c', head: 'dev', base: 'main' }),
     mergedPr(5, { sha: 'd', head: 'main', base: 'dev' }),
     mergedPr(6, { sha: 'e', base: 'main' }),
+    mergedPr(7, { sha: 'f', head: 'dev', headRepo: 'someone/app' }),
   ];
-  const kept = gh.filterPullRequests(prs, { shas: ['a', 'b', 'c', 'd', 'e'], excludeHeads: ['dev', 'main'] });
-  assert.deepEqual(kept.map((pr) => pr.number), [1, 6]);
+  const kept = gh.filterPullRequests(prs, {
+    shas: ['a', 'b', 'c', 'd', 'e', 'f'],
+    excludeHeads: ['dev', 'main'],
+    fullName: 'acme/app',
+  });
+  assert.deepEqual(kept.map((pr) => pr.number), [1, 6, 7]);
 });
 
 test('compareCommits follows pagination', async () => {
