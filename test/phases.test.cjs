@@ -7,6 +7,7 @@ const { createFakeOctokit, mergedPr } = require('./fake-octokit.cjs');
 
 const inputs = { stagingBranch: 'dev', mainBranch: 'main', updateMajorTag: false };
 const context = (sha = 'headsha') => ({ repo: { owner: 'acme', repo: 'app' }, ref: 'refs/heads/dev', sha });
+const mainContext = () => ({ ...context(), ref: 'refs/heads/main' });
 const entry = (section, text) => `## 📋 Changelog Entry\n\n### ${section}\n- ${text}\n`;
 
 test('detectPhase maps refs and honours overrides', () => {
@@ -93,7 +94,7 @@ test('finalize creates a release from PRs since the latest tag', async () => {
     ],
   });
 
-  const result = await runFinalize({ octokit, context: context(), inputs });
+  const result = await runFinalize({ octokit, context: mainContext(), inputs });
 
   assert.equal(result.status, 'created');
   assert.equal(result.nextVersion, 'v2.0.0');
@@ -112,7 +113,7 @@ test('finalize without tags walks the commit history', async () => {
     commits: ['headsha', 'a'],
     pulls: [mergedPr(1, { sha: 'a', base: 'main', body: entry('Added', 'First') })],
   });
-  const result = await runFinalize({ octokit, context: context(), inputs });
+  const result = await runFinalize({ octokit, context: mainContext(), inputs });
   assert.equal(result.nextVersion, 'v0.1.0');
   assert.ok(calls.some(([name, p]) => name === 'repos.listCommits' && p.sha === 'headsha'));
 });
@@ -122,7 +123,7 @@ test('finalize without tags starts from the since input when given', async () =>
     compare: { 'abc123...headsha': ['a'] },
     pulls: [mergedPr(1, { sha: 'a', base: 'main', body: entry('Fixed', 'Bug') })],
   });
-  const result = await runFinalize({ octokit, context: context(), inputs: { ...inputs, since: 'abc123' } });
+  const result = await runFinalize({ octokit, context: mainContext(), inputs: { ...inputs, since: 'abc123' } });
   assert.equal(result.nextVersion, 'v0.0.1');
   assert.ok(!calls.some(([name]) => name === 'repos.listCommits'));
 });
@@ -133,7 +134,7 @@ test('finalize exits when there is nothing to release', async () => {
     compare: { 'v1.0.0...headsha': ['a'] },
     pulls: [mergedPr(1, { sha: 'a', body: entry('Fixed', '-') })],
   });
-  const result = await runFinalize({ octokit, context: context(), inputs });
+  const result = await runFinalize({ octokit, context: mainContext(), inputs });
   assert.equal(result.status, 'skipped');
   assert.ok(!calls.some(([name]) => name === 'repos.createRelease'));
 });
@@ -144,7 +145,7 @@ test('finalize is idempotent when the release already exists', async () => {
     compare: { 'v1.0.0...headsha': ['a'] },
     pulls: [mergedPr(1, { sha: 'a', body: entry('Fixed', 'Bug') })],
   });
-  const result = await runFinalize({ octokit, context: context(), inputs });
+  const result = await runFinalize({ octokit, context: mainContext(), inputs });
   assert.equal(result.status, 'exists');
   assert.ok(!calls.some(([name]) => name === 'repos.createRelease'));
 });
@@ -159,11 +160,11 @@ test('finalize moves the major tag only when enabled', async () => {
     });
 
   let fake = setup();
-  await runFinalize({ octokit: fake.octokit, context: context(), inputs });
+  await runFinalize({ octokit: fake.octokit, context: mainContext(), inputs });
   assert.equal(fake.repo.refs['tags/v1'], 'oldsha');
 
   fake = setup();
-  await runFinalize({ octokit: fake.octokit, context: context(), inputs: { ...inputs, updateMajorTag: true } });
+  await runFinalize({ octokit: fake.octokit, context: mainContext(), inputs: { ...inputs, updateMajorTag: true } });
   assert.equal(fake.repo.refs['tags/v1'], 'headsha');
 });
 
@@ -174,7 +175,7 @@ test('finalize refuses when the tag already points at another commit', async () 
     pulls: [mergedPr(1, { sha: 'a', body: entry('Fixed', 'Bug') })],
     refs: { 'tags/v1.0.1': 'othersha' },
   });
-  await assert.rejects(runFinalize({ octokit, context: context(), inputs }), /v1\.0\.1 already exists at othersha/);
+  await assert.rejects(runFinalize({ octokit, context: mainContext(), inputs }), /v1\.0\.1 already exists at othersha/);
   assert.ok(!calls.some(([name]) => name === 'repos.createRelease'));
 });
 
@@ -185,7 +186,19 @@ test('finalize creates the release for an existing tag at the same commit', asyn
     pulls: [mergedPr(1, { sha: 'a', body: entry('Fixed', 'Bug') })],
     refs: { 'tags/v1.0.1': 'headsha' },
   });
-  const result = await runFinalize({ octokit, context: context(), inputs });
+  const result = await runFinalize({ octokit, context: mainContext(), inputs });
   assert.equal(result.status, 'created');
   assert.ok(repo.releases.some((r) => r.tag_name === 'v1.0.1'));
+});
+
+test('forced finalize from another ref releases the main branch head', async () => {
+  const { octokit, repo } = createFakeOctokit({
+    releases: [{ tag_name: 'v1.0.0' }],
+    refs: { 'heads/main': 'mainhead' },
+    compare: { 'v1.0.0...mainhead': ['a'] },
+    pulls: [mergedPr(1, { sha: 'a', body: entry('Fixed', 'Bug') })],
+  });
+  const result = await runFinalize({ octokit, context: context('devsha'), inputs });
+  assert.equal(result.status, 'created');
+  assert.equal(repo.releases.find((r) => r.tag_name === 'v1.0.1').target_commitish, 'mainhead');
 });

@@ -163,6 +163,11 @@ async function findLatestVersion(octokit, { owner, repo }) {
   return latestTag([...releaseTags, ...tags]);
 }
 
+async function getBranchHead(octokit, { owner, repo, branch }) {
+  const { data } = await octokit.rest.git.getRef({ owner, repo, ref: `heads/${branch}` });
+  return data.object.sha;
+}
+
 /**
  * Returns the commit SHA a tag points at (dereferencing annotated tags),
  * or null when the tag does not exist.
@@ -225,6 +230,7 @@ module.exports = {
   filterPullRequests,
   findMergedPullRequests,
   findLatestVersion,
+  getBranchHead,
   getTagCommit,
   getReleaseByTag,
   findOpenPullRequest,

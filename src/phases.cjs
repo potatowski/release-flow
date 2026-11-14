@@ -141,7 +141,11 @@ function renderReleaseBody({ prs, agg }) {
  */
 async function runFinalize({ octokit, context, inputs, log = silentLog }) {
   const { owner, repo } = context.repo;
-  const sha = context.sha;
+  // A forced finalize from another ref releases the current main head.
+  const sha =
+    context.ref === `refs/heads/${inputs.mainBranch}`
+      ? context.sha
+      : await gh.getBranchHead(octokit, { owner, repo, branch: inputs.mainBranch });
 
   const latest = await gh.findLatestVersion(octokit, { owner, repo });
   const base = latest ? latest.tag : inputs.since;
