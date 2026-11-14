@@ -101,6 +101,13 @@ async function runPrepare({ octokit, context, inputs, log = silentLog }) {
     base: mainBranch,
   });
 
+  if (existing && !String(existing.body || '').includes(DEPLOY_MARKER)) {
+    log.warning(
+      `Pull request #${existing.number} (${stagingBranch} -> ${mainBranch}) was not opened by this action; leaving it untouched.`,
+    );
+    return { status: 'untouched', nextVersion: result.next || '', body, pullRequest: existing.number };
+  }
+
   let pr;
   if (existing) {
     ({ data: pr } = await octokit.rest.pulls.update({

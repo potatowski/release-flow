@@ -60,7 +60,7 @@ test('prepare updates the existing deploy pull request', async () => {
     compare: { 'main...dev': ['a'] },
     pulls: [
       mergedPr(10, { sha: 'a', body: entry('Fixed', 'Bug') }),
-      { number: 7, state: 'open', title: 'old', body: 'old', head: { ref: 'dev' }, base: { ref: 'main' } },
+      { number: 7, state: 'open', title: 'old', body: `${DEPLOY_MARKER}\nold`, head: { ref: 'dev' }, base: { ref: 'main' } },
     ],
   });
 
@@ -71,6 +71,23 @@ test('prepare updates the existing deploy pull request', async () => {
   assert.equal(result.nextVersion, 'v0.0.1');
   assert.ok(calls.some(([name, p]) => name === 'pulls.update' && p.pull_number === 7));
   assert.ok(!calls.some(([name]) => name === 'pulls.create'));
+});
+
+test('prepare leaves a hand-written staging pull request untouched', async () => {
+  const { octokit, calls } = createFakeOctokit({
+    compare: { 'main...dev': ['a'] },
+    pulls: [
+      mergedPr(10, { sha: 'a', body: entry('Fixed', 'Bug') }),
+      { number: 8, state: 'open', title: 'Mine', body: 'manual', head: { ref: 'dev' }, base: { ref: 'main' } },
+    ],
+  });
+  const warnings = [];
+  const result = await runPrepare({ octokit, context: context(), inputs, log: { info() {}, warning: (m) => warnings.push(m) } });
+  assert.equal(result.status, 'untouched');
+  assert.equal(result.nextVersion, 'v0.0.1');
+  assert.ok(result.body.includes(DEPLOY_MARKER));
+  assert.ok(!calls.some(([name]) => name === 'pulls.update' || name === 'pulls.create'));
+  assert.match(warnings[0], /#8/);
 });
 
 test('prepare without entries still opens the PR but projects no version', async () => {
