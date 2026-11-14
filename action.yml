@@ -1,4 +1,4 @@
-name: Release Flow
+name: Release Flow Action
 description: Open a deploy pull request from staging and publish a semver release on main, driven by pull request changelog entries.
 author: potatowski
 branding:
