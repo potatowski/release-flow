@@ -6,6 +6,7 @@ const {
   parseChangelog,
   isBreaking,
   aggregate,
+  escapeText,
   renderSections,
   renderPullRequests,
 } = require('../src/changelog.cjs');
@@ -162,4 +163,16 @@ test('aggregates and renders entries with pull request numbers', () => {
   assert.equal(renderSections(agg), '### Added\n\n- Login (#3)\n\n### Fixed\n\n- Crash (#5)');
   assert.equal(renderSections(agg, 2).split('\n')[0], '## Added');
   assert.equal(renderPullRequests(prs), '- #3 Add login\n- #5 fix!: crash');
+});
+
+test('escapes mentions and HTML in rendered text', () => {
+  assert.equal(escapeText('thanks @alice and @acme/core-team'), 'thanks `@alice` and `@acme/core-team`');
+  assert.equal(escapeText('@bob first'), '`@bob` first');
+  assert.equal(escapeText('mail me@example.com'), 'mail me@example.com');
+  assert.equal(escapeText('already `@carol`'), 'already `@carol`');
+  assert.equal(escapeText('<img src=x onerror=alert(1)>'), '&lt;img src=x onerror=alert(1)>');
+
+  const prs = [{ number: 1, title: 'ping @dave <b>', body: '## Changelog Entry\n### Fixed\n- by @erin <script>' }];
+  assert.equal(renderSections(aggregate(prs)), '### Fixed\n\n- by `@erin` &lt;script> (#1)');
+  assert.equal(renderPullRequests(prs), '- #1 ping `@dave` &lt;b>');
 });

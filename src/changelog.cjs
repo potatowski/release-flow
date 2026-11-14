@@ -131,18 +131,28 @@ function aggregate(prs) {
   return { sections, breaking, total };
 }
 
+/**
+ * Neutralizes untrusted text for markdown bodies: wraps @mentions in
+ * backticks so nobody gets pinged and escapes `<` so no HTML is injected.
+ */
+function escapeText(text) {
+  return String(text)
+    .replace(/</g, '&lt;')
+    .replace(/(^|[^\w`])(@[A-Za-z0-9](?:[A-Za-z0-9-]*)(?:\/[A-Za-z0-9_.-]+)?)/g, '$1`$2`');
+}
+
 function renderSections(agg, level = 3) {
   const hashes = '#'.repeat(level);
   return SECTIONS.filter((name) => agg.sections[name].length > 0)
     .map((name) => {
-      const items = agg.sections[name].map((entry) => `- ${entry.text} (#${entry.number})`);
+      const items = agg.sections[name].map((entry) => `- ${escapeText(entry.text)} (#${entry.number})`);
       return `${hashes} ${name}\n\n${items.join('\n')}`;
     })
     .join('\n\n');
 }
 
 function renderPullRequests(prs) {
-  return prs.map((pr) => `- #${pr.number} ${pr.title}`).join('\n');
+  return prs.map((pr) => `- #${pr.number} ${escapeText(pr.title)}`).join('\n');
 }
 
 module.exports = {
@@ -150,6 +160,7 @@ module.exports = {
   parseChangelog,
   isBreaking,
   aggregate,
+  escapeText,
   renderSections,
   renderPullRequests,
 };
