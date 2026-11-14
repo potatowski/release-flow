@@ -239,3 +239,34 @@ test('finalize keeps the tag range for a merge-commit deploy', async () => {
   assert.ok(!calls.some(([name]) => name === 'pulls.listCommits'));
   assert.deepEqual(warnings, []);
 });
+
+test('re-run moves the major tag when the latest release is at the pushed commit', async () => {
+  const { octokit, repo } = createFakeOctokit({
+    releases: [{ tag_name: 'v1.1.0' }],
+    refs: { 'tags/v1.1.0': 'headsha', 'tags/v1': 'oldsha' },
+  });
+  const result = await runFinalize({ octokit, context: mainContext(), inputs: { ...inputs, updateMajorTag: true } });
+  assert.equal(result.status, 'skipped');
+  assert.equal(repo.refs['tags/v1'], 'headsha');
+});
+
+test('existing release still moves the major tag when enabled', async () => {
+  const { octokit, repo } = createFakeOctokit({
+    releases: [{ tag_name: 'v1.0.0' }, { tag_name: 'v1.0.1', prerelease: true }],
+    compare: { 'v1.0.0...headsha': ['a'] },
+    pulls: [mergedPr(1, { sha: 'a', body: entry('Fixed', 'Bug') })],
+    refs: { 'tags/v1.0.1': 'headsha' },
+  });
+  const result = await runFinalize({ octokit, context: mainContext(), inputs: { ...inputs, updateMajorTag: true } });
+  assert.equal(result.status, 'exists');
+  assert.equal(repo.refs['tags/v1'], 'headsha');
+});
+
+test('major tag is not moved when the latest tag is elsewhere', async () => {
+  const { octokit, repo } = createFakeOctokit({
+    releases: [{ tag_name: 'v1.1.0' }],
+    refs: { 'tags/v1.1.0': 'oldsha', 'tags/v1': 'oldsha' },
+  });
+  await runFinalize({ octokit, context: mainContext(), inputs: { ...inputs, updateMajorTag: true } });
+  assert.equal(repo.refs['tags/v1'], 'oldsha');
+});

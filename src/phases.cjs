@@ -135,6 +135,12 @@ function renderReleaseBody({ prs, agg }) {
   return `${changelog.renderSections(agg, 2)}\n\n## Pull Requests\n\n${changelog.renderPullRequests(prs)}\n`;
 }
 
+async function moveMajorTag(octokit, { owner, repo, tag, sha, log }) {
+  const major = tag.split('.')[0];
+  const action = await gh.upsertTagRef(octokit, { owner, repo, tag: major, sha });
+  log.info(`Major tag ${major} ${action} at ${sha}.`);
+}
+
 /**
  * Commits that make up the release at `sha`. A squash or rebase merged
  * deploy pull request rewrites the staging commits, so their merge SHAs
@@ -177,9 +183,20 @@ async function runFinalize({ octokit, context, inputs, log = silentLog }) {
   const latest = await gh.findLatestVersion(octokit, { owner, repo });
   const commits = await releaseRange(octokit, { owner, repo, inputs, sha, latest, log });
 
+  // Re-runs still move the major tag when the release itself is in place.
+  const syncMajorTag = async (tag) => {
+    if (!inputs.updateMajorTag) return;
+    if ((await gh.getTagCommit(octokit, { owner, repo, tag })) !== sha) {
+      log.info(`Tag ${tag} does not point at ${sha}; leaving the major tag alone.`);
+      return;
+    }
+    await moveMajorTag(octokit, { owner, repo, tag, sha, log });
+  };
+
   const result = await plan(octokit, { owner, repo, inputs, commits, latest, log });
   if (!result.bump) {
     log.info('No changelog entries since the latest release; nothing to release.');
+    if (latest) await syncMajorTag(latest.tag);
     return { status: 'skipped' };
   }
 
@@ -188,6 +205,7 @@ async function runFinalize({ octokit, context, inputs, log = silentLog }) {
 
   if (await gh.getReleaseByTag(octokit, { owner, repo, tag })) {
     log.info(`Release ${tag} already exists; nothing to do.`);
+    await syncMajorTag(tag);
     return { status: 'exists', nextVersion: tag, body };
   }
 
@@ -206,11 +224,7 @@ async function runFinalize({ octokit, context, inputs, log = silentLog }) {
   });
   log.info(`Created release ${tag} (${result.bump.type}: ${result.bump.reason}).`);
 
-  if (inputs.updateMajorTag) {
-    const major = tag.split('.')[0];
-    const action = await gh.upsertTagRef(octokit, { owner, repo, tag: major, sha });
-    log.info(`Major tag ${major} ${action} at ${sha}.`);
-  }
+  if (inputs.updateMajorTag) await moveMajorTag(octokit, { owner, repo, tag, sha, log });
 
   return { status: 'created', nextVersion: tag, body };
 }
