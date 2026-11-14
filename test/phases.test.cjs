@@ -117,6 +117,16 @@ test('finalize without tags walks the commit history', async () => {
   assert.ok(calls.some(([name, p]) => name === 'repos.listCommits' && p.sha === 'headsha'));
 });
 
+test('finalize without tags starts from the since input when given', async () => {
+  const { octokit, calls } = createFakeOctokit({
+    compare: { 'abc123...headsha': ['a'] },
+    pulls: [mergedPr(1, { sha: 'a', base: 'main', body: entry('Fixed', 'Bug') })],
+  });
+  const result = await runFinalize({ octokit, context: context(), inputs: { ...inputs, since: 'abc123' } });
+  assert.equal(result.nextVersion, 'v0.0.1');
+  assert.ok(!calls.some(([name]) => name === 'repos.listCommits'));
+});
+
 test('finalize exits when there is nothing to release', async () => {
   const { octokit, calls } = createFakeOctokit({
     releases: [{ tag_name: 'v1.0.0' }],

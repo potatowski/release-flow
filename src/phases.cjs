@@ -144,8 +144,9 @@ async function runFinalize({ octokit, context, inputs, log = silentLog }) {
   const sha = context.sha;
 
   const latest = await gh.findLatestVersion(octokit, { owner, repo });
-  const commits = latest
-    ? (await gh.compareCommits(octokit, { owner, repo, base: latest.tag, head: sha })).commits
+  const base = latest ? latest.tag : inputs.since;
+  const commits = base
+    ? (await gh.compareCommits(octokit, { owner, repo, base, head: sha })).commits
     : await gh.listCommits(octokit, { owner, repo, sha });
 
   const result = await plan(octokit, { owner, repo, inputs, commits, latest, log });

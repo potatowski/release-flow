@@ -26,6 +26,11 @@ inputs:
     required: false
     default: 'false'
 
+  since:
+    description: Tag or commit SHA used as the start of the first release range when no vX.Y.Z tag exists yet. When empty, the whole history is scanned (up to 2000 commits).
+    required: false
+    default: ''
+
 outputs:
   next_version:
     description: Version computed for the release (for example v1.4.0). Empty when there is nothing to release.

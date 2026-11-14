@@ -12,6 +12,7 @@ async function main() {
       stagingBranch: core.getInput('staging_branch') || 'dev',
       mainBranch: core.getInput('main_branch') || 'main',
       updateMajorTag: core.getInput('update_major_tag').trim().toLowerCase() === 'true',
+      since: core.getInput('since').trim(),
     };
     const { context } = github;
 
