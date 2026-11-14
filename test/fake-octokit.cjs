@@ -6,6 +6,11 @@ function notFound() {
   return error;
 }
 
+function toApiCommit(item) {
+  if (typeof item === 'string') return { sha: item };
+  return { sha: item.sha, commit: { committer: { date: item.date } } };
+}
+
 function page(items, { page = 1, per_page = 30 }) {
   return items.slice((page - 1) * per_page, page * per_page);
 }
@@ -41,12 +46,12 @@ function createFakeOctokit(state = {}) {
             data: {
               ahead_by: shas.length,
               total_commits: shas.length,
-              commits: page(shas, params).map((sha) => ({ sha })),
+              commits: page(shas, params).map(toApiCommit),
             },
           };
         }),
         listCommits: record('repos.listCommits', (params) => ({
-          data: page(repo.commits, params).map((sha) => ({ sha })),
+          data: page(repo.commits, params).map(toApiCommit),
         })),
         listReleases: record('repos.listReleases', (params) => ({
           data: page(repo.releases, params),

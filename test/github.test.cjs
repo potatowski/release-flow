@@ -31,14 +31,14 @@ test('compareCommits follows pagination', async () => {
   const { octokit, calls } = createFakeOctokit({ compare: { 'main...dev': shas } });
   const result = await gh.compareCommits(octokit, { owner, repo, base: 'main', head: 'dev' });
   assert.equal(result.aheadBy, 250);
-  assert.deepEqual(result.shas, shas);
+  assert.deepEqual(result.commits.map((c) => c.sha), shas);
   assert.equal(calls.length, 3);
 });
 
-test('listCommitShas stops at the cap', async () => {
+test('listCommits stops at the cap', async () => {
   const commits = Array.from({ length: 2300 }, (_, i) => `c${i}`);
   const { octokit } = createFakeOctokit({ commits });
-  const result = await gh.listCommitShas(octokit, { owner, repo, sha: 'head' });
+  const result = await gh.listCommits(octokit, { owner, repo, sha: 'head' });
   assert.equal(result.length, 2000);
 });
 
@@ -51,9 +51,62 @@ test('findMergedPullRequests searches every base and dedupes', async () => {
     repo,
     bases: ['dev', 'main'],
     excludeHeads: ['dev', 'main'],
-    shas: ['a', 'b'],
+    commits: [{ sha: 'a' }, { sha: 'b' }],
   });
   assert.deepEqual(prs.map((pr) => pr.number), [1, 2]);
+});
+
+const day = (n) => new Date(Date.UTC(2026, 0, 1) + n * 86400000).toISOString();
+
+function stalePulls(count, newestDay) {
+  return Array.from({ length: count }, (_, i) => ({
+    ...mergedPr(5000 + i, { sha: `x${i}` }),
+    updated_at: day(newestDay - i / 10),
+  }));
+}
+
+test('findMergedPullRequests stops once pull requests predate the range', async () => {
+  const { octokit, calls } = createFakeOctokit({ pulls: stalePulls(500, 10) });
+  const log = { warnings: [], warning(m) { this.warnings.push(m); } };
+  await gh.findMergedPullRequests(octokit, {
+    owner,
+    repo,
+    bases: ['dev'],
+    excludeHeads: ['dev', 'main'],
+    commits: [{ sha: 'nope', date: day(8) }],
+    log,
+  });
+  assert.equal(calls.filter(([name]) => name === 'pulls.list').length, 1);
+  assert.deepEqual(log.warnings, []);
+});
+
+test('findMergedPullRequests stops once every commit is matched', async () => {
+  const { octokit, calls } = createFakeOctokit({ pulls: stalePulls(500, 10) });
+  const prs = await gh.findMergedPullRequests(octokit, {
+    owner,
+    repo,
+    bases: ['dev', 'main'],
+    excludeHeads: ['dev', 'main'],
+    commits: [{ sha: 'x3' }],
+  });
+  assert.deepEqual(prs.map((pr) => pr.number), [5003]);
+  assert.equal(calls.length, 1);
+});
+
+test('findMergedPullRequests warns when the page cap is hit', async () => {
+  const { octokit, calls } = createFakeOctokit({ pulls: stalePulls(1100, 1000) });
+  const log = { warnings: [], warning(m) { this.warnings.push(m); } };
+  await gh.findMergedPullRequests(octokit, {
+    owner,
+    repo,
+    bases: ['dev'],
+    excludeHeads: ['dev', 'main'],
+    commits: [{ sha: 'nope', date: day(0) }],
+    log,
+  });
+  assert.equal(calls.length, 10);
+  assert.equal(log.warnings.length, 1);
+  assert.match(log.warnings[0], /after 10 pages/);
 });
 
 test('findLatestVersion uses the highest of release tags and repository tags', async () => {

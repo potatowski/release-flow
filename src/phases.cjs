@@ -28,15 +28,16 @@ function detectPhase({ override, ref, stagingBranch, mainBranch }) {
 }
 
 /**
- * Computes the release plan for the pull requests merged in `shas`.
+ * Computes the release plan for the pull requests merged in `commits`.
  */
-async function plan(octokit, { owner, repo, inputs, shas, latest }) {
+async function plan(octokit, { owner, repo, inputs, commits, latest, log }) {
   const prs = await gh.findMergedPullRequests(octokit, {
     owner,
     repo,
     bases: [inputs.stagingBranch, inputs.mainBranch],
     excludeHeads: [inputs.stagingBranch, inputs.mainBranch],
-    shas,
+    commits,
+    log,
   });
   const agg = changelog.aggregate(prs);
   const current = latest ? latest.version : version.ZERO;
@@ -84,13 +85,13 @@ async function runPrepare({ octokit, context, inputs, log = silentLog }) {
     base: mainBranch,
     head: stagingBranch,
   });
-  if (range.aheadBy === 0 || range.shas.length === 0) {
+  if (range.aheadBy === 0 || range.commits.length === 0) {
     log.info(`${stagingBranch} has no commits ahead of ${mainBranch}; nothing to deploy.`);
     return { status: 'skipped' };
   }
 
   const latest = await gh.findLatestVersion(octokit, { owner, repo });
-  const result = await plan(octokit, { owner, repo, inputs, shas: range.shas, latest });
+  const result = await plan(octokit, { owner, repo, inputs, commits: range.commits, latest, log });
   const body = renderDeployBody(result);
 
   const existing = await gh.findOpenPullRequest(octokit, {
@@ -143,11 +144,11 @@ async function runFinalize({ octokit, context, inputs, log = silentLog }) {
   const sha = context.sha;
 
   const latest = await gh.findLatestVersion(octokit, { owner, repo });
-  const shas = latest
-    ? (await gh.compareCommits(octokit, { owner, repo, base: latest.tag, head: sha })).shas
-    : await gh.listCommitShas(octokit, { owner, repo, sha });
+  const commits = latest
+    ? (await gh.compareCommits(octokit, { owner, repo, base: latest.tag, head: sha })).commits
+    : await gh.listCommits(octokit, { owner, repo, sha });
 
-  const result = await plan(octokit, { owner, repo, inputs, shas, latest });
+  const result = await plan(octokit, { owner, repo, inputs, commits, latest, log });
   if (!result.bump) {
     log.info('No changelog entries since the latest release; nothing to release.');
     return { status: 'skipped' };
