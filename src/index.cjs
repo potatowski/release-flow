@@ -5,9 +5,9 @@ const { detectPhase, runPrepare, runFinalize } = require('./phases.cjs');
 async function main() {
   // The @actions packages are ESM-only; eager mode keeps them in the single bundle.
   const core = await import(/* webpackMode: "eager" */ '@actions/core');
-  const github = await import(/* webpackMode: "eager" */ '@actions/github');
 
   try {
+    const github = await import(/* webpackMode: "eager" */ '@actions/github');
     const inputs = {
       stagingBranch: core.getInput('staging_branch') || 'dev',
       mainBranch: core.getInput('main_branch') || 'main',
@@ -42,4 +42,7 @@ async function main() {
   }
 }
 
-main();
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
