@@ -117,6 +117,23 @@ test('detects breaking changes', () => {
   assert.ok(!isBreaking({ title: 'feat: thing', body: 'breaking change mentioned in lowercase' }));
 });
 
+test('breaking label honours the template hint', () => {
+  const pr = (line) => ({ title: 'feat: thing', body: `## Summary\n\n${line}\n` });
+  assert.ok(!isBreaking(pr('**Breaking Change:** (Yes/No)')));
+  assert.ok(isBreaking(pr('**Breaking Change:** (Yes/No) Yes')));
+  assert.ok(!isBreaking(pr('**Breaking Change:** No')));
+  assert.ok(!isBreaking(pr('**Breaking Change:** (Yes/No) No')));
+  assert.ok(!isBreaking(pr('**Breaking Change:**')));
+});
+
+test('BREAKING CHANGE must be a footer-style line outside comments and code', () => {
+  const pr = (body) => ({ title: 'fix: thing', body });
+  assert.ok(!isBreaking(pr('There is no BREAKING CHANGE here')));
+  assert.ok(isBreaking(pr('Details\n\nBREAKING-CHANGE: config renamed')));
+  assert.ok(!isBreaking(pr('<!-- BREAKING CHANGE: example -->')));
+  assert.ok(!isBreaking(pr('```\nBREAKING CHANGE: example\n**Breaking Change:** Yes\n```')));
+});
+
 test('aggregates and renders entries with pull request numbers', () => {
   const prs = [
     { number: 3, title: 'Add login', body: '## Changelog Entry\n### Added\n- Login' },

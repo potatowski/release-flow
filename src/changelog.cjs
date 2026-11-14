@@ -78,12 +78,25 @@ function parseChangelog(body) {
   return sections;
 }
 
+function stripNoise(text) {
+  return String(text || '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/^ {0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?^ {0,3}\1[^\n]*$/gm, '');
+}
+
+function breakingLabel(body) {
+  const match = /\*\*Breaking Change:\*\*(.*)$/im.exec(body);
+  if (!match) return false;
+  const answer = match[1].replace(/\(\s*yes\s*\/\s*no\s*\)/gi, '');
+  return /\byes\b/i.test(answer) && !/\bno\b/i.test(answer);
+}
+
 function isBreaking(pr) {
-  const body = pr.body || '';
+  const body = stripNoise(pr.body);
   const title = pr.title || '';
   return (
-    /\*\*Breaking Change:\*\*\s*Yes\b/i.test(body) ||
-    body.includes('BREAKING CHANGE') ||
+    breakingLabel(body) ||
+    /^BREAKING[ -]CHANGE:/m.test(body) ||
     /^\s*\w+(\([^)]*\))?!:/.test(title)
   );
 }
