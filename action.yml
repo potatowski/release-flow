@@ -1,0 +1,37 @@
+name: Release Flow
+description: Open a deploy pull request from staging and publish a semver release on main, driven by pull request changelog entries.
+author: potatowski
+branding:
+  icon: tag
+  color: blue
+
+inputs:
+  github_token:
+    description: Token used for GitHub API calls. Use a GitHub App token so the deploy pull request triggers CI.
+    required: true
+  staging_branch:
+    description: Staging branch name.
+    required: false
+    default: dev
+  main_branch:
+    description: Production branch name.
+    required: false
+    default: main
+  phase:
+    description: Force a phase (prepare or finalize). Auto-detected from the pushed branch when empty.
+    required: false
+    default: ''
+  update_major_tag:
+    description: When 'true', move the major tag (for example v1) to the released commit.
+    required: false
+    default: 'false'
+
+outputs:
+  next_version:
+    description: Version computed for the release (for example v1.4.0). Empty when there is nothing to release.
+  release_body:
+    description: Rendered deploy pull request body (prepare) or release notes (finalize).
+
+runs:
+  using: node24
+  main: dist/index.cjs

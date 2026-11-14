@@ -1,0 +1,19 @@
+{
+  "name": "release-flow",
+  "version": "1.0.0",
+  "description": "GitHub Action that opens deploy pull requests and publishes releases from pull request changelog entries",
+  "private": true,
+  "license": "MIT",
+  "main": "dist/index.cjs",
+  "scripts": {
+    "build": "ncc build src/index.cjs -o dist",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@actions/core": "3.0.1",
+    "@actions/github": "9.1.1"
+  },
+  "devDependencies": {
+    "@vercel/ncc": "0.45.0"
+  }
+}
