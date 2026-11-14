@@ -29553,11 +29553,12 @@ module.exports = require("util");
 
 
 const SECTIONS = ['Added', 'Changed', 'Deprecated', 'Removed', 'Fixed', 'Security'];
-const PLACEHOLDERS = new Set(['', '-', 'n/a', 'none']);
+const PLACEHOLDERS = new Set(['', '-', 'n/a', 'na', 'none', 'tbd']);
 
 const H2 = /^ {0,3}##(?!#)\s*(.*?)\s*#*\s*$/;
 const H3 = /^ {0,3}###(?!#)\s*(.*?)\s*#*\s*$/;
-const BULLET = /^ {0,3}[-*](?:\s+(.*))?$/;
+const BULLET = /^ ?[-*](?:\s+(.*))?$/;
+const CONTINUATION = /^(?: {2,}|\t)\s*\S/;
 
 function emptySections() {
   return Object.fromEntries(SECTIONS.map((name) => [name, []]));
@@ -29569,7 +29570,13 @@ function sectionName(heading) {
 }
 
 function isPlaceholder(text) {
-  return PLACEHOLDERS.has(text.trim().toLowerCase());
+  return PLACEHOLDERS.has(
+    text
+      .trim()
+      .toLowerCase()
+      .replace(/[.!,;:]+$/, '')
+      .trim(),
+  );
 }
 
 /**
@@ -29618,7 +29625,7 @@ function parseChangelog(body) {
       continue;
     }
 
-    if (item !== null && /^\s+\S/.test(line)) {
+    if (item !== null && CONTINUATION.test(line)) {
       item = `${item} ${line.trim()}`.trim();
       continue;
     }
@@ -29630,12 +29637,25 @@ function parseChangelog(body) {
   return sections;
 }
 
+function stripNoise(text) {
+  return String(text || '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/^ {0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?^ {0,3}\1[^\n]*$/gm, '');
+}
+
+function breakingLabel(body) {
+  const match = /\*\*Breaking Change:\*\*(.*)$/im.exec(body);
+  if (!match) return false;
+  const answer = match[1].replace(/\(\s*yes\s*\/\s*no\s*\)/gi, '');
+  return /\byes\b/i.test(answer) && !/\bno\b/i.test(answer);
+}
+
 function isBreaking(pr) {
-  const body = pr.body || '';
+  const body = stripNoise(pr.body);
   const title = pr.title || '';
   return (
-    /\*\*Breaking Change:\*\*\s*Yes\b/i.test(body) ||
-    body.includes('BREAKING CHANGE') ||
+    breakingLabel(body) ||
+    /^BREAKING[ -]CHANGE:/m.test(body) ||
     /^\s*\w+(\([^)]*\))?!:/.test(title)
   );
 }
@@ -29663,18 +29683,28 @@ function aggregate(prs) {
   return { sections, breaking, total };
 }
 
+/**
+ * Neutralizes untrusted text for markdown bodies: wraps @mentions in
+ * backticks so nobody gets pinged and escapes `<` so no HTML is injected.
+ */
+function escapeText(text) {
+  return String(text)
+    .replace(/</g, '&lt;')
+    .replace(/(^|[^\w`])(@[A-Za-z0-9](?:[A-Za-z0-9-]*)(?:\/[A-Za-z0-9_.-]+)?)/g, '$1`$2`');
+}
+
 function renderSections(agg, level = 3) {
   const hashes = '#'.repeat(level);
   return SECTIONS.filter((name) => agg.sections[name].length > 0)
     .map((name) => {
-      const items = agg.sections[name].map((entry) => `- ${entry.text} (#${entry.number})`);
+      const items = agg.sections[name].map((entry) => `- ${escapeText(entry.text)} (#${entry.number})`);
       return `${hashes} ${name}\n\n${items.join('\n')}`;
     })
     .join('\n\n');
 }
 
 function renderPullRequests(prs) {
-  return prs.map((pr) => `- #${pr.number} ${pr.title}`).join('\n');
+  return prs.map((pr) => `- #${pr.number} ${escapeText(pr.title)}`).join('\n');
 }
 
 module.exports = {
@@ -29682,6 +29712,7 @@ module.exports = {
   parseChangelog,
   isBreaking,
   aggregate,
+  escapeText,
   renderSections,
   renderPullRequests,
 };
@@ -29702,12 +29733,17 @@ const MAX_PR_PAGES = 10;
 const MAX_COMPARE_PAGES = 100;
 const MAX_LIST_PAGES = 10;
 
+const toCommit = (commit) => ({
+  sha: commit.sha,
+  date: (commit.commit && commit.commit.committer && commit.commit.committer.date) || null,
+});
+
 /**
  * Lists the commits of `base...head`, following compare pagination.
- * Returns { aheadBy, shas }.
+ * Returns { aheadBy, commits } where each commit is { sha, date }.
  */
 async function compareCommits(octokit, { owner, repo, base, head }) {
-  const shas = [];
+  const commits = [];
   let aheadBy = 0;
   for (let page = 1; page <= MAX_COMPARE_PAGES; page += 1) {
     const { data } = await octokit.rest.repos.compareCommitsWithBasehead({
@@ -29718,19 +29754,19 @@ async function compareCommits(octokit, { owner, repo, base, head }) {
       page,
     });
     aheadBy = data.ahead_by;
-    const commits = data.commits || [];
-    for (const commit of commits) shas.push(commit.sha);
-    if (commits.length < PER_PAGE || shas.length >= (data.total_commits || 0)) break;
+    const batch = data.commits || [];
+    commits.push(...batch.map(toCommit));
+    if (batch.length < PER_PAGE || commits.length >= (data.total_commits || 0)) break;
   }
-  return { aheadBy, shas };
+  return { aheadBy, commits };
 }
 
 /**
- * Lists commit SHAs reachable from `sha`, newest first, up to `cap`.
+ * Lists commits reachable from `sha`, newest first, up to `cap`.
  */
-async function listCommitShas(octokit, { owner, repo, sha, cap = 2000 }) {
-  const shas = [];
-  for (let page = 1; shas.length < cap; page += 1) {
+async function listCommits(octokit, { owner, repo, sha, cap = 2000 }) {
+  const commits = [];
+  for (let page = 1; commits.length < cap; page += 1) {
     const { data } = await octokit.rest.repos.listCommits({
       owner,
       repo,
@@ -29738,36 +29774,62 @@ async function listCommitShas(octokit, { owner, repo, sha, cap = 2000 }) {
       per_page: PER_PAGE,
       page,
     });
-    for (const commit of data) shas.push(commit.sha);
+    commits.push(...data.map(toCommit));
     if (data.length < PER_PAGE) break;
   }
-  return shas.slice(0, cap);
+  return commits.slice(0, cap);
 }
 
 /**
- * Keeps merged pull requests whose merge commit is in `shas` and whose
- * head branch is not one of `excludeHeads`.
+ * Oldest committer date among `commits`, or null when unknown.
  */
-function filterPullRequests(prs, { shas, excludeHeads }) {
+function oldestDate(commits) {
+  let oldest = null;
+  for (const { date } of commits) {
+    if (!date) return null;
+    const time = Date.parse(date);
+    if (oldest === null || time < oldest) oldest = time;
+  }
+  return oldest;
+}
+
+function isSameRepo(pr, fullName) {
+  return Boolean(pr.head && pr.head.repo && pr.head.repo.full_name === fullName);
+}
+
+/**
+ * Keeps merged pull requests whose merge commit is in `shas`, dropping those
+ * opened from one of `excludeHeads` in this repository (deploy and sync
+ * pull requests). Fork branches with the same names are kept.
+ */
+function filterPullRequests(prs, { shas, excludeHeads, fullName }) {
   const shaSet = shas instanceof Set ? shas : new Set(shas);
   return prs.filter(
     (pr) =>
       pr.merged_at &&
       pr.merge_commit_sha &&
       shaSet.has(pr.merge_commit_sha) &&
-      !excludeHeads.includes(pr.head && pr.head.ref),
+      !(excludeHeads.includes(pr.head && pr.head.ref) && isSameRepo(pr, fullName)),
   );
 }
 
 /**
  * Finds merged pull requests targeting any of `bases` whose merge commit
- * is in `shas`. Returns them deduplicated and sorted by number.
+ * is in `commits`. Returns them deduplicated and sorted by number.
+ *
+ * Closed pull requests are scanned newest-updated first, so the scan stops
+ * once every commit is matched or once pull requests were last updated
+ * before the oldest commit in the range.
  */
-async function findMergedPullRequests(octokit, { owner, repo, bases, excludeHeads, shas }) {
-  const shaSet = new Set(shas);
+async function findMergedPullRequests(octokit, { owner, repo, bases, excludeHeads, commits, log }) {
+  const shaSet = new Set(commits.map((commit) => commit.sha));
+  const unmatched = new Set(shaSet);
+  const cutoff = oldestDate(commits);
   const found = new Map();
+  const fullName = `${owner}/${repo}`;
+
   for (const base of bases) {
-    for (let page = 1; page <= MAX_PR_PAGES; page += 1) {
+    for (let page = 1; page <= MAX_PR_PAGES && unmatched.size > 0; page += 1) {
       const { data } = await octokit.rest.pulls.list({
         owner,
         repo,
@@ -29778,13 +29840,63 @@ async function findMergedPullRequests(octokit, { owner, repo, bases, excludeHead
         per_page: PER_PAGE,
         page,
       });
-      for (const pr of filterPullRequests(data, { shas: shaSet, excludeHeads })) {
+      for (const pr of filterPullRequests(data, { shas: shaSet, excludeHeads, fullName })) {
         found.set(pr.number, pr);
       }
+      for (const pr of data) {
+        if (pr.merged_at) unmatched.delete(pr.merge_commit_sha);
+      }
+
       if (data.length < PER_PAGE) break;
+      const last = data[data.length - 1];
+      if (cutoff !== null && last.updated_at && Date.parse(last.updated_at) < cutoff) break;
+      if (page === MAX_PR_PAGES && log) {
+        log.warning(
+          `Stopped scanning closed pull requests into ${base} after ${MAX_PR_PAGES} pages; older pull requests may be missing.`,
+        );
+      }
     }
   }
   return [...found.values()].sort((a, b) => a.number - b.number);
+}
+
+/**
+ * Returns the merged `head` -> `base` pull request from this repository
+ * that produced commit `sha`, or null.
+ */
+async function findMergedPullRequestForCommit(octokit, { owner, repo, sha, head, base }) {
+  const { data } = await octokit.rest.repos.listPullRequestsAssociatedWithCommit({
+    owner,
+    repo,
+    commit_sha: sha,
+  });
+  const fullName = `${owner}/${repo}`;
+  return (
+    data.find(
+      (pr) => pr.merged_at && pr.head.ref === head && pr.base.ref === base && isSameRepo(pr, fullName),
+    ) || null
+  );
+}
+
+async function countParents(octokit, { owner, repo, sha }) {
+  const { data } = await octokit.rest.repos.getCommit({ owner, repo, ref: sha });
+  return data.parents.length;
+}
+
+async function listPullRequestCommits(octokit, { owner, repo, pullNumber }) {
+  const commits = [];
+  for (let page = 1; page <= MAX_LIST_PAGES; page += 1) {
+    const { data } = await octokit.rest.pulls.listCommits({
+      owner,
+      repo,
+      pull_number: pullNumber,
+      per_page: PER_PAGE,
+      page,
+    });
+    commits.push(...data.map(toCommit));
+    if (data.length < PER_PAGE) break;
+  }
+  return commits;
 }
 
 async function listNames(fetchPage, pick) {
@@ -29801,22 +29913,43 @@ async function listNames(fetchPage, pick) {
 }
 
 /**
- * Returns the highest `vX.Y.Z` among published releases (no drafts or
- * prereleases), falling back to the tags list. Null when none exists.
+ * Returns the highest `vX.Y.Z` among published release tags (no drafts or
+ * prereleases) and repository tags. Null when none exists.
  */
 async function findLatestVersion(octokit, { owner, repo }) {
   const releaseTags = await listNames(
     (page) => octokit.rest.repos.listReleases({ owner, repo, per_page: PER_PAGE, page }),
     (release) => (release.draft || release.prerelease ? null : release.tag_name),
   );
-  const fromReleases = latestTag(releaseTags);
-  if (fromReleases) return fromReleases;
-
   const tags = await listNames(
     (page) => octokit.rest.repos.listTags({ owner, repo, per_page: PER_PAGE, page }),
     (tag) => tag.name,
   );
-  return latestTag(tags);
+  return latestTag([...releaseTags, ...tags]);
+}
+
+async function getBranchHead(octokit, { owner, repo, branch }) {
+  const { data } = await octokit.rest.git.getRef({ owner, repo, ref: `heads/${branch}` });
+  return data.object.sha;
+}
+
+/**
+ * Returns the commit SHA a tag points at (dereferencing annotated tags),
+ * or null when the tag does not exist.
+ */
+async function getTagCommit(octokit, { owner, repo, tag }) {
+  let object;
+  try {
+    ({ data: { object } } = await octokit.rest.git.getRef({ owner, repo, ref: `tags/${tag}` }));
+  } catch (error) {
+    if (error.status === 404) return null;
+    throw error;
+  }
+  if (object.type === 'tag') {
+    const { data } = await octokit.rest.git.getTag({ owner, repo, tag_sha: object.sha });
+    return data.object.sha;
+  }
+  return object.sha;
 }
 
 async function getReleaseByTag(octokit, { owner, repo, tag }) {
@@ -29858,10 +29991,15 @@ async function upsertTagRef(octokit, { owner, repo, tag, sha }) {
 
 module.exports = {
   compareCommits,
-  listCommitShas,
+  listCommits,
   filterPullRequests,
   findMergedPullRequests,
+  findMergedPullRequestForCommit,
+  countParents,
+  listPullRequestCommits,
   findLatestVersion,
+  getBranchHead,
+  getTagCommit,
   getReleaseByTag,
   findOpenPullRequest,
   upsertTagRef,
@@ -29904,15 +30042,16 @@ function detectPhase({ override, ref, stagingBranch, mainBranch }) {
 }
 
 /**
- * Computes the release plan for the pull requests merged in `shas`.
+ * Computes the release plan for the pull requests merged in `commits`.
  */
-async function plan(octokit, { owner, repo, inputs, shas, latest }) {
+async function plan(octokit, { owner, repo, inputs, commits, latest, log }) {
   const prs = await gh.findMergedPullRequests(octokit, {
     owner,
     repo,
     bases: [inputs.stagingBranch, inputs.mainBranch],
     excludeHeads: [inputs.stagingBranch, inputs.mainBranch],
-    shas,
+    commits,
+    log,
   });
   const agg = changelog.aggregate(prs);
   const current = latest ? latest.version : version.ZERO;
@@ -29960,13 +30099,13 @@ async function runPrepare({ octokit, context, inputs, log = silentLog }) {
     base: mainBranch,
     head: stagingBranch,
   });
-  if (range.aheadBy === 0 || range.shas.length === 0) {
+  if (range.aheadBy === 0 || range.commits.length === 0) {
     log.info(`${stagingBranch} has no commits ahead of ${mainBranch}; nothing to deploy.`);
     return { status: 'skipped' };
   }
 
   const latest = await gh.findLatestVersion(octokit, { owner, repo });
-  const result = await plan(octokit, { owner, repo, inputs, shas: range.shas, latest });
+  const result = await plan(octokit, { owner, repo, inputs, commits: range.commits, latest, log });
   const body = renderDeployBody(result);
 
   const existing = await gh.findOpenPullRequest(octokit, {
@@ -29975,6 +30114,13 @@ async function runPrepare({ octokit, context, inputs, log = silentLog }) {
     head: stagingBranch,
     base: mainBranch,
   });
+
+  if (existing && !String(existing.body || '').includes(DEPLOY_MARKER)) {
+    log.warning(
+      `Pull request #${existing.number} (${stagingBranch} -> ${mainBranch}) was not opened by this action; leaving it untouched.`,
+    );
+    return { status: 'untouched', nextVersion: result.next || '', body, pullRequest: existing.number };
+  }
 
   let pr;
   if (existing) {
@@ -30010,22 +30156,68 @@ function renderReleaseBody({ prs, agg }) {
   return `${changelog.renderSections(agg, 2)}\n\n## Pull Requests\n\n${changelog.renderPullRequests(prs)}\n`;
 }
 
+async function moveMajorTag(octokit, { owner, repo, tag, sha, log }) {
+  const major = tag.split('.')[0];
+  const action = await gh.upsertTagRef(octokit, { owner, repo, tag: major, sha });
+  log.info(`Major tag ${major} ${action} at ${sha}.`);
+}
+
+/**
+ * Commits that make up the release at `sha`. A squash or rebase merged
+ * deploy pull request rewrites the staging commits, so their merge SHAs
+ * are only reachable through the pull request itself.
+ */
+async function releaseRange(octokit, { owner, repo, inputs, sha, latest, log }) {
+  const deploy = await gh.findMergedPullRequestForCommit(octokit, {
+    owner,
+    repo,
+    sha,
+    head: inputs.stagingBranch,
+    base: inputs.mainBranch,
+  });
+  if (deploy && (await gh.countParents(octokit, { owner, repo, sha })) === 1) {
+    log.warning(
+      `Deploy pull request #${deploy.number} was not merged with a merge commit; using its commits as the release range. ` +
+        `Merge deploy pull requests with a merge commit so ${inputs.stagingBranch} and ${inputs.mainBranch} keep a shared history.`,
+    );
+    return gh.listPullRequestCommits(octokit, { owner, repo, pullNumber: deploy.number });
+  }
+
+  const base = latest ? latest.tag : inputs.since;
+  return base
+    ? (await gh.compareCommits(octokit, { owner, repo, base, head: sha })).commits
+    : gh.listCommits(octokit, { owner, repo, sha });
+}
+
 /**
  * Main push: publishes a release for the pull requests merged since the
  * latest version tag.
  */
 async function runFinalize({ octokit, context, inputs, log = silentLog }) {
   const { owner, repo } = context.repo;
-  const sha = context.sha;
+  // A forced finalize from another ref releases the current main head.
+  const sha =
+    context.ref === `refs/heads/${inputs.mainBranch}`
+      ? context.sha
+      : await gh.getBranchHead(octokit, { owner, repo, branch: inputs.mainBranch });
 
   const latest = await gh.findLatestVersion(octokit, { owner, repo });
-  const shas = latest
-    ? (await gh.compareCommits(octokit, { owner, repo, base: latest.tag, head: sha })).shas
-    : await gh.listCommitShas(octokit, { owner, repo, sha });
+  const commits = await releaseRange(octokit, { owner, repo, inputs, sha, latest, log });
 
-  const result = await plan(octokit, { owner, repo, inputs, shas, latest });
+  // Re-runs still move the major tag when the release itself is in place.
+  const syncMajorTag = async (tag) => {
+    if (!inputs.updateMajorTag) return;
+    if ((await gh.getTagCommit(octokit, { owner, repo, tag })) !== sha) {
+      log.info(`Tag ${tag} does not point at ${sha}; leaving the major tag alone.`);
+      return;
+    }
+    await moveMajorTag(octokit, { owner, repo, tag, sha, log });
+  };
+
+  const result = await plan(octokit, { owner, repo, inputs, commits, latest, log });
   if (!result.bump) {
     log.info('No changelog entries since the latest release; nothing to release.');
+    if (latest) await syncMajorTag(latest.tag);
     return { status: 'skipped' };
   }
 
@@ -30034,7 +30226,13 @@ async function runFinalize({ octokit, context, inputs, log = silentLog }) {
 
   if (await gh.getReleaseByTag(octokit, { owner, repo, tag })) {
     log.info(`Release ${tag} already exists; nothing to do.`);
+    await syncMajorTag(tag);
     return { status: 'exists', nextVersion: tag, body };
+  }
+
+  const tagCommit = await gh.getTagCommit(octokit, { owner, repo, tag });
+  if (tagCommit && tagCommit !== sha) {
+    throw new Error(`Tag ${tag} already exists at ${tagCommit}, not ${sha}; refusing to create the release.`);
   }
 
   await octokit.rest.repos.createRelease({
@@ -30047,11 +30245,7 @@ async function runFinalize({ octokit, context, inputs, log = silentLog }) {
   });
   log.info(`Created release ${tag} (${result.bump.type}: ${result.bump.reason}).`);
 
-  if (inputs.updateMajorTag) {
-    const major = tag.split('.')[0];
-    const action = await gh.upsertTagRef(octokit, { owner, repo, tag: major, sha });
-    log.info(`Major tag ${major} ${action} at ${sha}.`);
-  }
+  if (inputs.updateMajorTag) await moveMajorTag(octokit, { owner, repo, tag, sha, log });
 
   return { status: 'created', nextVersion: tag, body };
 }
@@ -38269,13 +38463,14 @@ const { detectPhase, runPrepare, runFinalize } = __nccwpck_require__(3196);
 async function main() {
   // The @actions packages are ESM-only; eager mode keeps them in the single bundle.
   const core = await Promise.resolve(/* import() eager */).then(__nccwpck_require__.bind(__nccwpck_require__, 6257));
-  const github = await Promise.resolve(/* import() eager */).then(__nccwpck_require__.bind(__nccwpck_require__, 2413));
 
   try {
+    const github = await Promise.resolve(/* import() eager */).then(__nccwpck_require__.bind(__nccwpck_require__, 2413));
     const inputs = {
       stagingBranch: core.getInput('staging_branch') || 'dev',
       mainBranch: core.getInput('main_branch') || 'main',
       updateMajorTag: core.getInput('update_major_tag').trim().toLowerCase() === 'true',
+      since: core.getInput('since').trim(),
     };
     const { context } = github;
 
@@ -38305,7 +38500,10 @@ async function main() {
   }
 }
 
-main();
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
 
 })();
 
