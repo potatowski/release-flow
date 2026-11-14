@@ -7,6 +7,7 @@ const H2 = /^ {0,3}##(?!#)\s*(.*?)\s*#*\s*$/;
 const H3 = /^ {0,3}###(?!#)\s*(.*?)\s*#*\s*$/;
 const BULLET = /^ ?[-*](?:\s+(.*))?$/;
 const CONTINUATION = /^(?: {2,}|\t)\s*\S/;
+const BLOCK_END = /^ {0,3}(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$|^\s*<(?:details|hr)\b/i;
 
 function emptySections() {
   return Object.fromEntries(SECTIONS.map((name) => [name, []]));
@@ -56,7 +57,7 @@ function parseChangelog(body) {
   };
 
   for (const line of lines.slice(start + 1)) {
-    if (H2.test(line)) break;
+    if (H2.test(line) || BLOCK_END.test(line)) break;
 
     const h3 = H3.exec(line);
     if (h3) {

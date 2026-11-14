@@ -48,6 +48,16 @@ test('stops at the next h2 heading', () => {
   assert.ok(!all.some((item) => item.includes('Tests')));
 });
 
+test('stops at a thematic break or a details block', () => {
+  const tail = '\n- `@dependabot rebase` will rebase this PR\n- `@dependabot recreate` will recreate this PR';
+  const body = (end) => `## Changelog Entry\n### Changed\n- Bump x\n### Security\n-\n${end}${tail}`;
+  for (const end of ['---\n', '***\n', '- - -\n', '<details>\n<summary>Commands</summary>\n', '<hr>\n']) {
+    const sections = parseChangelog(body(end));
+    assert.deepEqual(sections.Changed, ['Bump x'], end);
+    assert.deepEqual(sections.Security, [], end);
+  }
+});
+
 test('handles CRLF line endings', () => {
   const result = parseChangelog(TEMPLATE.replace(/\n/g, '\r\n'));
   assert.deepEqual(result.Added, ['New login page']);
