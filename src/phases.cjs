@@ -130,11 +130,63 @@ async function runPrepare({ octokit, context, inputs, log = silentLog }) {
   };
 }
 
+function renderReleaseBody({ prs, agg }) {
+  return `${changelog.renderSections(agg, 2)}\n\n## Pull Requests\n\n${changelog.renderPullRequests(prs)}\n`;
+}
+
+/**
+ * Main push: publishes a release for the pull requests merged since the
+ * latest version tag.
+ */
+async function runFinalize({ octokit, context, inputs, log = silentLog }) {
+  const { owner, repo } = context.repo;
+  const sha = context.sha;
+
+  const latest = await gh.findLatestVersion(octokit, { owner, repo });
+  const shas = latest
+    ? (await gh.compareCommits(octokit, { owner, repo, base: latest.tag, head: sha })).shas
+    : await gh.listCommitShas(octokit, { owner, repo, sha });
+
+  const result = await plan(octokit, { owner, repo, inputs, shas, latest });
+  if (!result.bump) {
+    log.info('No changelog entries since the latest release; nothing to release.');
+    return { status: 'skipped' };
+  }
+
+  const tag = result.next;
+  const body = renderReleaseBody(result);
+
+  if (await gh.getReleaseByTag(octokit, { owner, repo, tag })) {
+    log.info(`Release ${tag} already exists; nothing to do.`);
+    return { status: 'exists', nextVersion: tag, body };
+  }
+
+  await octokit.rest.repos.createRelease({
+    owner,
+    repo,
+    tag_name: tag,
+    name: tag,
+    target_commitish: sha,
+    body,
+  });
+  log.info(`Created release ${tag} (${result.bump.type}: ${result.bump.reason}).`);
+
+  if (inputs.updateMajorTag) {
+    const major = tag.split('.')[0];
+    const action = await gh.upsertTagRef(octokit, { owner, repo, tag: major, sha });
+    log.info(`Major tag ${major} ${action} at ${sha}.`);
+  }
+
+  return { status: 'created', nextVersion: tag, body };
+}
+
 module.exports = {
   DEPLOY_MARKER,
   DEPLOY_TITLE,
   detectPhase,
   plan,
   renderDeployBody,
+  renderReleaseBody,
   runPrepare,
+  runFinalize,
 };
