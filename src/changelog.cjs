@@ -1,11 +1,12 @@
 'use strict';
 
 const SECTIONS = ['Added', 'Changed', 'Deprecated', 'Removed', 'Fixed', 'Security'];
-const PLACEHOLDERS = new Set(['', '-', 'n/a', 'none']);
+const PLACEHOLDERS = new Set(['', '-', 'n/a', 'na', 'none', 'tbd']);
 
 const H2 = /^ {0,3}##(?!#)\s*(.*?)\s*#*\s*$/;
 const H3 = /^ {0,3}###(?!#)\s*(.*?)\s*#*\s*$/;
-const BULLET = /^ {0,3}[-*](?:\s+(.*))?$/;
+const BULLET = /^ ?[-*](?:\s+(.*))?$/;
+const CONTINUATION = /^(?: {2,}|\t)\s*\S/;
 
 function emptySections() {
   return Object.fromEntries(SECTIONS.map((name) => [name, []]));
@@ -17,7 +18,13 @@ function sectionName(heading) {
 }
 
 function isPlaceholder(text) {
-  return PLACEHOLDERS.has(text.trim().toLowerCase());
+  return PLACEHOLDERS.has(
+    text
+      .trim()
+      .toLowerCase()
+      .replace(/[.!,;:]+$/, '')
+      .trim(),
+  );
 }
 
 /**
@@ -66,7 +73,7 @@ function parseChangelog(body) {
       continue;
     }
 
-    if (item !== null && /^\s+\S/.test(line)) {
+    if (item !== null && CONTINUATION.test(line)) {
       item = `${item} ${line.trim()}`.trim();
       continue;
     }

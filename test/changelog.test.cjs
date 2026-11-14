@@ -62,6 +62,11 @@ test('skips placeholders and empty bullets', () => {
     '* none',
     '- None',
     '-   ',
+    '- N/A.',
+    '- None.',
+    '- TBD',
+    '- tbd!',
+    '- - ',
     '* Real change',
   ].join('\n');
   assert.deepEqual(parseChangelog(body).Changed, ['Real change']);
@@ -78,6 +83,18 @@ test('appends indented continuation lines to the previous bullet', () => {
     'not indented, ends the item',
   ].join('\n');
   assert.deepEqual(parseChangelog(body).Fixed, ['Fixed a long standing bug with tabs', 'Second item']);
+});
+
+test('treats bullets indented two or more spaces as continuation', () => {
+  const body = [
+    '## Changelog Entry',
+    '### Changed',
+    '- Parent item',
+    '  - nested detail',
+    ' - one space is a new item',
+    ' single-space text ends the item',
+  ].join('\n');
+  assert.deepEqual(parseChangelog(body).Changed, ['Parent item - nested detail', 'one space is a new item']);
 });
 
 test('matches headings case-insensitively and ignores unknown sections', () => {
