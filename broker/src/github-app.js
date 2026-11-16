@@ -9,6 +9,13 @@ export class NotInstalledError extends Error {
   }
 }
 
+export class PermissionsNotGrantedError extends Error {
+  constructor() {
+    super('The installation has not granted the permissions the app requests');
+    this.name = 'PermissionsNotGrantedError';
+  }
+}
+
 export class GitHubApiError extends Error {
   constructor(status) {
     super(`GitHub API error (${status})`);
@@ -64,7 +71,7 @@ export async function createInstallationToken({
   apiUrl = 'https://api.github.com',
 }) {
   const notInstalled = () =>
-    new NotInstalledError(`The Release Flow app is not installed on ${owner}/${repo}`);
+    new NotInstalledError(`The Changelog Release Flow app is not installed on ${owner}/${repo}`);
 
   const lookup = await call(fetch, `${apiUrl}/repos/${owner}/${repo}/installation`, appJwt);
   if (lookup.status === 404) throw notInstalled();
@@ -74,7 +81,11 @@ export async function createInstallationToken({
     method: 'POST',
     body: JSON.stringify({ repository_ids: [Number(repositoryId)], permissions: TOKEN_PERMISSIONS }),
   });
-  // 422: the repository is not among the installation's selected repositories.
+  // 422 means either the repository is not among the installation's selected
+  // repositories, or the owner has not accepted the permissions the app requests.
+  if (created.status === 422 && /permission/i.test(created.body.message || '')) {
+    throw new PermissionsNotGrantedError();
+  }
   if (created.status === 404 || created.status === 422) throw notInstalled();
   if (created.status !== 201) throw new GitHubApiError(created.status);
 
