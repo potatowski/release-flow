@@ -9,6 +9,9 @@ The changelog comes from a `Changelog Entry` section in each pull request body, 
 
 ## Usage
 
+1. Install the [Changelog Release Flow](https://github.com/apps/changelog-release-flow) app on the repositories that will use this action.
+2. Add the workflow:
+
 ```yaml
 name: Release
 
@@ -18,6 +21,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
   group: release-${{ github.ref }}
@@ -27,6 +31,22 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
+      - uses: potatowski/release-flow@v1
+```
+
+No secrets are needed. The action requests an OIDC token for the workflow (that is what `id-token: write` allows) and exchanges it at the token broker for a Changelog Release Flow installation token. That token works only on the repository running the workflow, has only Contents and Pull requests write access, and is revoked when the run ends. The broker only works on github.com; on GitHub Enterprise Server, [bring your own App](#bring-your-own-app).
+
+The phase is detected from the pushed branch. Pushes to any other ref are logged and the action exits successfully. When `phase: finalize` is forced from another ref, the current head of the main branch is released.
+
+**Merge the deploy pull request with a merge commit.** Squash or rebase merges rewrite the staging commits on main, so staging and main stop sharing a merge base and later deploy pull requests show already-released changes again. The action still finds the right pull requests for that release (it reads the deploy pull request's own commits) and logs a warning.
+
+If an open staging-to-main pull request already exists and was not created by this action (its body has no `<!-- release-flow:deploy -->` marker), it is left untouched and a warning is logged.
+
+### Bring your own App
+
+To use your own identity instead of the shared app (or on GitHub Enterprise Server), pass `github_token`. The broker is then never called and `id-token: write` is not needed.
+
+```yaml
       - uses: actions/create-github-app-token@v3
         id: app-token
         with:
@@ -40,13 +60,7 @@ jobs:
           github_token: ${{ steps.app-token.outputs.token }}
 ```
 
-The phase is detected from the pushed branch. Pushes to any other ref are logged and the action exits successfully. When `phase: finalize` is forced from another ref, the current head of the main branch is released.
-
-**Merge the deploy pull request with a merge commit.** Squash or rebase merges rewrite the staging commits on main, so staging and main stop sharing a merge base and later deploy pull requests show already-released changes again. The action still finds the right pull requests for that release (it reads the deploy pull request's own commits) and logs a warning.
-
-If an open staging-to-main pull request already exists and was not created by this action (its body has no `<!-- release-flow:deploy -->` marker), it is left untouched and a warning is logged.
-
-### GitHub App setup
+#### App setup
 
 1. Create a GitHub App on your personal account (**Settings > Developer settings > GitHub Apps > New GitHub App**).
    - Disable the webhook (uncheck **Active**). No callback URL is needed.
@@ -57,7 +71,7 @@ If an open staging-to-main pull request already exists and was not created by th
    - a variable `RELEASE_APP_CLIENT_ID` with the Client ID;
    - a secret `RELEASE_APP_PRIVATE_KEY` with the contents of the private key file.
 
-Caveat: with `update_major_tag: true`, moving a tag to a commit that changes files under `.github/workflows` may be rejected unless the App also has the **Workflows: Read and write** permission (add `permission-workflows: write` to the token step as well).
+Caveat: with `update_major_tag: true`, moving a tag to a commit that changes files under `.github/workflows` may be rejected unless the token has the **Workflows: Read and write** permission. The shared app does not request it, so in that case use your own App with that permission (and add `permission-workflows: write` to the token step).
 
 ### Why an App token
 
@@ -67,7 +81,8 @@ Events created with the workflow's built-in `GITHUB_TOKEN` do not trigger new wo
 
 | Name | Required | Default | Description |
 | --- | --- | --- | --- |
-| `github_token` | yes | | Token used for API calls. Use a GitHub App token. |
+| `github_token` | no | | Token used for API calls. Leave empty to use the Changelog Release Flow app via OIDC. When set, use a GitHub App token. |
+| `token_broker_url` | no | `https://release-flow-broker.vitorrocha.workers.dev/token` | Token broker endpoint used when `github_token` is empty. |
 | `staging_branch` | no | `dev` | Staging branch name. |
 | `main_branch` | no | `main` | Production branch name. |
 | `phase` | no | | Force `prepare` or `finalize`. Auto-detected from `github.ref` when empty. |
