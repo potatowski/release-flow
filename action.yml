@@ -7,7 +7,7 @@ branding:
 
 inputs:
   github_token:
-    description: Token used for GitHub API calls. Leave empty to use the Changelog Release Flow app through OIDC (requires `id-token: write`). When set, use a GitHub App token so the deploy pull request triggers CI.
+    description: 'Token used for GitHub API calls. Leave empty to use the Changelog Release Flow app through OIDC (requires `id-token: write`). When set, use a GitHub App token so the deploy pull request triggers CI.'
     required: false
     default: ''
   token_broker_url:
