@@ -4,5 +4,5 @@ compatibility_date = "2026-11-01"
 
 # Secrets (set with `wrangler secret put`): APP_CLIENT_ID, APP_PRIVATE_KEY (PKCS#8 PEM).
 [vars]
-APP_SLUG = "release-flow"
+APP_SLUG = "changelog-release-flow"
 OIDC_AUDIENCE = "release-flow"
