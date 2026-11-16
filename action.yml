@@ -7,8 +7,13 @@ branding:
 
 inputs:
   github_token:
-    description: Token used for GitHub API calls. Use a GitHub App token so the deploy pull request triggers CI.
-    required: true
+    description: Token used for GitHub API calls. Leave empty to use the Changelog Release Flow app through OIDC (requires `id-token: write`). When set, use a GitHub App token so the deploy pull request triggers CI.
+    required: false
+    default: ''
+  token_broker_url:
+    description: Token broker endpoint used when github_token is empty.
+    required: false
+    default: https://release-flow-broker.vitorrocha.workers.dev/token
   staging_branch:
     description: Staging branch name.
     required: false
