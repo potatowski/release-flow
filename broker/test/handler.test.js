@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { handleRequest } from '../src/handler.js';
-import { InvalidTokenError } from '../src/oidc.js';
+import { InvalidTokenError, EventNotAllowedError } from '../src/oidc.js';
 import { NotInstalledError, GitHubApiError } from '../src/github-app.js';
 
 const JWT = 'header.payload.signature';
@@ -92,4 +92,12 @@ test('never echoes the bearer token', async () => {
     const { body } = await send(request(), d);
     assert.ok(!JSON.stringify(body).includes(JWT));
   }
+});
+
+test('explains rejected events with 403', async () => {
+  const d = deps({ verify: async () => { throw new EventNotAllowedError('pull_request_target'); } });
+  const { status, body } = await send(request(), d);
+  assert.equal(status, 403);
+  assert.match(body.error, /pull_request_target/);
+  assert.match(body.error, /push, workflow_dispatch, schedule/);
 });

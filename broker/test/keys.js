@@ -7,6 +7,7 @@ const DEFAULT_CLAIMS = {
   repository: 'acme/app',
   repository_id: '123',
   repository_owner: 'acme',
+  event_name: 'push',
 };
 
 async function keyPair(kid) {
