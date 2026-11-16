@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { handleRequest } from '../src/handler.js';
 import { InvalidTokenError, EventNotAllowedError } from '../src/oidc.js';
-import { NotInstalledError, GitHubApiError } from '../src/github-app.js';
+import { NotInstalledError, PermissionsNotGrantedError, GitHubApiError } from '../src/github-app.js';
 
 const JWT = 'header.payload.signature';
 const claims = { repository: 'acme/app', repositoryId: '123', owner: 'acme', repo: 'app' };
@@ -100,4 +100,13 @@ test('explains rejected events with 403', async () => {
   assert.equal(status, 403);
   assert.match(body.error, /pull_request_target/);
   assert.match(body.error, /push, workflow_dispatch, schedule/);
+});
+
+test('asks owners to accept updated permissions with 403', async () => {
+  const d = deps({ mintToken: async () => { throw new PermissionsNotGrantedError(); } });
+  const { status, body } = await send(request(), d);
+  assert.equal(status, 403);
+  assert.match(body.error, /acme\/app/);
+  assert.match(body.error, /accept/);
+  assert.doesNotMatch(body.error, /not installed/);
 });

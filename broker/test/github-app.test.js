@@ -5,6 +5,7 @@ import {
   createAppJwt,
   createInstallationToken,
   NotInstalledError,
+  PermissionsNotGrantedError,
   GitHubApiError,
 } from '../src/github-app.js';
 import { createTestKeys } from './keys.js';
@@ -94,4 +95,12 @@ test('createInstallationToken maps 5xx to GitHubApiError', async () => {
   const error = await mint(fetch).catch((e) => e);
   assert.ok(error instanceof GitHubApiError);
   assert.equal(error.status, 503);
+});
+
+test('createInstallationToken maps a permissions 422 to PermissionsNotGrantedError', async () => {
+  const { fetch } = fakeFetch({
+    ...installed,
+    'POST /app/installations/42/access_tokens': { status: 422, body: { message: 'The permissions requested are not granted to this installation.' } },
+  });
+  await assert.rejects(mint(fetch), PermissionsNotGrantedError);
 });
