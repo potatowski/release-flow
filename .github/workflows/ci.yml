@@ -20,6 +20,9 @@ jobs:
 
       - run: npm ci
 
+      - name: Validate action.yml
+        run: npx --yes js-yaml@4.1.0 action.yml > /dev/null
+
       - run: npm test
 
       - run: npm run build
