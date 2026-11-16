@@ -26,3 +26,21 @@ jobs:
 
       - name: Check dist is up to date
         run: git diff --exit-code dist/
+
+  broker:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: broker
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: broker/package-lock.json
+
+      - run: npm ci
+
+      - run: npm test
