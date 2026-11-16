@@ -1,4 +1,4 @@
-import { InvalidTokenError } from './oidc.js';
+import { InvalidTokenError, EventNotAllowedError } from './oidc.js';
 import { NotInstalledError, GitHubApiError } from './github-app.js';
 
 function json(status, body) {
@@ -25,6 +25,7 @@ export async function handleRequest(request, { verify, mintToken, appSlug }) {
     claims = await verify(match[1]);
   } catch (error) {
     if (error instanceof InvalidTokenError) return json(401, { error: 'Invalid OIDC token' });
+    if (error instanceof EventNotAllowedError) return json(403, { error: error.message });
     throw error;
   }
 

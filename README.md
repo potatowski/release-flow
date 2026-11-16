@@ -36,6 +36,8 @@ jobs:
 
 No secrets are needed. The action requests an OIDC token for the workflow (that is what `id-token: write` allows) and exchanges it at the token broker for a Changelog Release Flow installation token. That token works only on the repository running the workflow, has only Contents and Pull requests write access, and is revoked when the run ends. The broker only works on github.com; on GitHub Enterprise Server, [bring your own App](#bring-your-own-app).
 
+The broker only accepts OIDC tokens from `push`, `workflow_dispatch` and `schedule` runs, so events that can run pull request code (`pull_request_target`, `workflow_run`, `issue_comment`) never get an app token. Any other workflow in an installed repository that grants `id-token: write` on those events can still obtain one, so install the app only on the repositories that release with it (**Only select repositories**).
+
 The phase is detected from the pushed branch. Pushes to any other ref are logged and the action exits successfully. When `phase: finalize` is forced from another ref, the current head of the main branch is released.
 
 **Merge the deploy pull request with a merge commit.** Squash or rebase merges rewrite the staging commits on main, so staging and main stop sharing a merge base and later deploy pull requests show already-released changes again. The action still finds the right pull requests for that release (it reads the deploy pull request's own commits) and logs a warning.
