@@ -2,6 +2,14 @@
 
 const AUDIENCE = 'release-flow';
 
+function isHttpsUrl(value) {
+  try {
+    return new URL(value).protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Returns the token for API calls: `githubToken` when given, otherwise an
  * installation token of the Release Flow app obtained by exchanging the
@@ -14,6 +22,10 @@ async function resolveToken({ githubToken, brokerUrl, audience, serverUrl, getID
     throw new Error(
       `The Release Flow token broker only supports github.com (this is ${serverUrl}). Pass github_token instead.`,
     );
+  }
+
+  if (!isHttpsUrl(brokerUrl)) {
+    throw new Error(`token_broker_url must be an HTTPS URL (got "${brokerUrl}").`);
   }
 
   let idToken;

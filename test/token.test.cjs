@@ -104,3 +104,13 @@ test('revokeToken sends DELETE /installation/token', async () => {
   };
   assert.equal(await revokeToken({ token: 'ghs_x', apiUrl: 'https://api.github.com', fetch: failing }), false);
 });
+
+test('rejects non-HTTPS broker URLs before requesting credentials', async () => {
+  for (const brokerUrl of ['http://broker.example/token', '', 'not a url']) {
+    const { fetch, calls } = fakeFetch(() => jsonResponse(200, { token: 'ghs_x' }));
+    const { opts, idCalls } = options({ brokerUrl, fetch });
+    await assert.rejects(resolveToken(opts), /token_broker_url must be an HTTPS URL/, brokerUrl);
+    assert.equal(idCalls.length, 0, brokerUrl);
+    assert.equal(calls.length, 0, brokerUrl);
+  }
+});
