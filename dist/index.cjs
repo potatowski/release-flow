@@ -29546,6 +29546,76 @@ module.exports = require("util");
 
 /***/ }),
 
+/***/ 4774:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+const { AUDIENCE, resolveToken, revokeToken } = __nccwpck_require__(4223);
+
+/**
+ * Action body with injected dependencies (@actions/core, @actions/github,
+ * process.env, fetch and the phase functions).
+ */
+async function runAction({ core, github, env, fetch, phases }) {
+  let token = null;
+  let fromBroker = false;
+  try {
+    const inputs = {
+      stagingBranch: core.getInput('staging_branch') || 'dev',
+      mainBranch: core.getInput('main_branch') || 'main',
+      updateMajorTag: core.getInput('update_major_tag').trim().toLowerCase() === 'true',
+      since: core.getInput('since').trim(),
+    };
+    const { context } = github;
+
+    const phase = phases.detectPhase({
+      override: core.getInput('phase'),
+      ref: context.ref,
+      stagingBranch: inputs.stagingBranch,
+      mainBranch: inputs.mainBranch,
+    });
+    if (!phase) {
+      core.info(
+        `Ref ${context.ref} is neither ${inputs.stagingBranch} nor ${inputs.mainBranch}; nothing to do.`,
+      );
+      return;
+    }
+    core.info(`Running ${phase} phase.`);
+
+    ({ token, fromBroker } = await resolveToken({
+      githubToken: core.getInput('github_token').trim(),
+      brokerUrl: core.getInput('token_broker_url').trim(),
+      audience: AUDIENCE,
+      serverUrl: env.GITHUB_SERVER_URL || 'https://github.com',
+      getIDToken: core.getIDToken,
+      fetch,
+    }));
+    core.setSecret(token);
+    if (fromBroker) core.info('Using Changelog Release Flow app token.');
+
+    const octokit = github.getOctokit(token);
+    const log = { info: core.info, warning: core.warning };
+    const run = phase === 'prepare' ? phases.runPrepare : phases.runFinalize;
+    const result = await run({ octokit, context, inputs, log });
+
+    core.setOutput('next_version', result.nextVersion || '');
+    core.setOutput('release_body', result.body || '');
+  } catch (error) {
+    core.setFailed(error instanceof Error ? error.message : String(error));
+  } finally {
+    if (fromBroker) {
+      await revokeToken({ token, apiUrl: env.GITHUB_API_URL || 'https://api.github.com', fetch });
+    }
+  }
+}
+
+module.exports = { runAction };
+
+
+/***/ }),
+
 /***/ 4294:
 /***/ ((module) => {
 
@@ -30261,6 +30331,82 @@ module.exports = {
   runPrepare,
   runFinalize,
 };
+
+
+/***/ }),
+
+/***/ 4223:
+/***/ ((module) => {
+
+"use strict";
+
+
+const AUDIENCE = 'release-flow';
+
+/**
+ * Returns the token for API calls: `githubToken` when given, otherwise an
+ * installation token of the Release Flow app obtained by exchanging the
+ * workflow's OIDC token at the broker.
+ */
+async function resolveToken({ githubToken, brokerUrl, audience, serverUrl, getIDToken, fetch }) {
+  if (githubToken) return { token: githubToken, fromBroker: false };
+
+  if (serverUrl.replace(/\/+$/, '') !== 'https://github.com') {
+    throw new Error(
+      `The Release Flow token broker only supports github.com (this is ${serverUrl}). Pass github_token instead.`,
+    );
+  }
+
+  let idToken;
+  try {
+    idToken = await getIDToken(audience);
+  } catch (error) {
+    throw new Error(
+      `Could not get an OIDC token (${error.message}). Add "id-token: write" to the workflow permissions, or pass github_token.`,
+    );
+  }
+
+  const response = await fetch(brokerUrl, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${idToken}` },
+  });
+  const text = await response.text();
+  let body;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    body = null;
+  }
+  if (!response.ok) {
+    const detail = body && typeof body.error === 'string' ? body.error : text;
+    throw new Error(`Token broker returned ${response.status}: ${detail}`);
+  }
+  if (!body || typeof body.token !== 'string' || !body.token) {
+    throw new Error('Token broker returned no token.');
+  }
+  return { token: body.token, fromBroker: true };
+}
+
+/**
+ * Revokes an installation token. Never throws; returns whether it worked.
+ */
+async function revokeToken({ token, apiUrl, fetch }) {
+  try {
+    const response = await fetch(`${apiUrl}/installation/token`, {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+    });
+    return response.status === 204;
+  } catch {
+    return false;
+  }
+}
+
+module.exports = { AUDIENCE, resolveToken, revokeToken };
 
 
 /***/ }),
@@ -38459,46 +38605,14 @@ var __webpack_exports__ = {};
 "use strict";
 
 
-const { detectPhase, runPrepare, runFinalize } = __nccwpck_require__(3196);
+const phases = __nccwpck_require__(3196);
+const { runAction } = __nccwpck_require__(4774);
 
 async function main() {
   // The @actions packages are ESM-only; eager mode keeps them in the single bundle.
   const core = await Promise.resolve(/* import() eager */).then(__nccwpck_require__.bind(__nccwpck_require__, 6257));
-
-  try {
-    const github = await Promise.resolve(/* import() eager */).then(__nccwpck_require__.bind(__nccwpck_require__, 2413));
-    const inputs = {
-      stagingBranch: core.getInput('staging_branch') || 'dev',
-      mainBranch: core.getInput('main_branch') || 'main',
-      updateMajorTag: core.getInput('update_major_tag').trim().toLowerCase() === 'true',
-      since: core.getInput('since').trim(),
-    };
-    const { context } = github;
-
-    const phase = detectPhase({
-      override: core.getInput('phase'),
-      ref: context.ref,
-      stagingBranch: inputs.stagingBranch,
-      mainBranch: inputs.mainBranch,
-    });
-    if (!phase) {
-      core.info(
-        `Ref ${context.ref} is neither ${inputs.stagingBranch} nor ${inputs.mainBranch}; nothing to do.`,
-      );
-      return;
-    }
-    core.info(`Running ${phase} phase.`);
-
-    const octokit = github.getOctokit(core.getInput('github_token', { required: true }));
-    const log = { info: core.info, warning: core.warning };
-    const run = phase === 'prepare' ? runPrepare : runFinalize;
-    const result = await run({ octokit, context, inputs, log });
-
-    core.setOutput('next_version', result.nextVersion || '');
-    core.setOutput('release_body', result.body || '');
-  } catch (error) {
-    core.setFailed(error instanceof Error ? error.message : String(error));
-  }
+  const github = await Promise.resolve(/* import() eager */).then(__nccwpck_require__.bind(__nccwpck_require__, 2413));
+  await runAction({ core, github, env: process.env, fetch: globalThis.fetch, phases });
 }
 
 main().catch((error) => {
