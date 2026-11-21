@@ -1,5 +1,6 @@
 import { createRemoteJWKSet } from 'jose';
 import { handleRequest } from './handler.js';
+import { handleMarketplace } from './marketplace.js';
 import { ISSUER, verifyActionsToken } from './oidc.js';
 import { createAppJwt, createInstallationToken } from './github-app.js';
 
@@ -9,6 +10,9 @@ const jwks = createRemoteJWKSet(new URL(`${ISSUER}/.well-known/jwks`));
 export default {
   async fetch(request, env) {
     try {
+      if (new URL(request.url).pathname === '/marketplace') {
+        return await handleMarketplace(request, { secret: env.MARKETPLACE_WEBHOOK_SECRET });
+      }
       return await handleRequest(request, {
         appSlug: env.APP_SLUG,
         verify: (jwt) => verifyActionsToken(jwt, { jwks, audience: env.OIDC_AUDIENCE }),
