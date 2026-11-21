@@ -2,7 +2,10 @@ name = "release-flow-broker"
 main = "src/index.js"
 compatibility_date = "2026-11-01"
 
-# Secrets (set with `wrangler secret put`): APP_CLIENT_ID, APP_PRIVATE_KEY (PKCS#8 PEM).
+# Deployed by Cloudflare Workers Builds on every push to main (root directory: broker/).
+# Secrets (set with `wrangler secret put` or in the dashboard):
+#   APP_CLIENT_ID, APP_PRIVATE_KEY (PKCS#8 PEM),
+#   MARKETPLACE_WEBHOOK_SECRET (same value as the Marketplace listing webhook secret).
 [vars]
 APP_SLUG = "changelog-release-flow"
 OIDC_AUDIENCE = "release-flow"
